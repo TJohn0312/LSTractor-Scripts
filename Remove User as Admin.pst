@@ -1,0 +1,56 @@
+#!PS
+# Remove admin
+
+$NewTenant = 'e3ac560c-55aa-49d9-b1e6-9b5acb802bfa'
+ $Status = dsregcmd /status | Out-String
+
+if ($Status -notmatch 'AzureAdJoined\s*:\s*YES' -or $Status -notmatch "TenantId\s*:\s*$NewTenant") {
+ throw 'Wrong tenant. Stopping.'
+ }
+
+$Admins = @(Get-LocalGroupMember -SID 'S-1-5-32-544')
+ $LocalAdmin = Get-LocalUser 'LS Admin' -ErrorAction Stop
+
+if (-not $LocalAdmin.Enabled -or -not ($Admins | Where-Object { $_.SID.Value -eq $LocalAdmin.SID.Value })) {
+ throw 'LS Admin is not available. Stopping.'
+ }
+
+$Employee = (Get-CimInstance Win32_ComputerSystem).UserName
+
+if ($Employee -notmatch '^LSWORKPLACE\\') {
+ throw "Unexpected user: $Employee"
+ }
+
+$Member = @($Admins | Where-Object { $_.Name -ieq $Employee })
+
+if ($Member.Count -gt 1) {
+ throw 'Multiple matching accounts. Stopping.'
+ }
+
+if ($Member.Count -eq 0) {
+ Write-Host "No direct admin membership found: $Employee" -ForegroundColor Green
+ }
+
+if ($Member.Count -eq 1) {
+ $SID = $Member[0].SID.Value
+ $Profile = @(Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $SID -and $_.Loaded })
+
+ if ($SID -notmatch '^S-1-12-1-' -or $Profile.Count -ne 1) {
+ throw 'Employee profile verification failed.'
+ }
+
+ Write-Host "Employee: $Employee"
+ Write-Host "Profile: $($Profile[0].LocalPath)"
+
+ $Confirm = Read-Host 'Type REMOVE to change to Standard User'
+
+ if ($Confirm -ceq 'REMOVE') {
+ Remove-LocalGroupMember -SID 'S-1-5-32-544' -Member $Member[0] -Confirm:$false -ErrorAction Stop
+
+ $Remaining = @(Get-LocalGroupMember -SID 'S-1-5-32-544' | Where-Object { $_.SID.Value -eq $SID })
+
+ if ($Remaining.Count -eq 0) {
+ Write-Host "SUCCESS: $Employee removed from Administrators." -ForegroundColor Green
+ }
+ }
+ }
