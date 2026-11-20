@@ -1,0 +1,36 @@
+#!PS
+
+# Forget MT1 and MT2 Network
+
+$Profiles = netsh wlan show profiles | Out-String
+ $OldNetworks = @([regex]::Matches($Profiles, '(?im)^\s*All User Profile\s*:\s*(MT\d+[- ]Series)\s*$') | ForEach-Object { $_.Groups[1].Value.Trim() } | Sort-Object -Unique)
+
+foreach ($Network in $OldNetworks) {
+ Write-Host "Removing: $Network" -ForegroundColor Yellow
+ netsh wlan delete profile name="$Network"
+ }
+
+Write-Host "`nRemaining Wi-Fi profiles:" -ForegroundColor Green
+ netsh wlan show profiles
+
+
+
+# Switch to MT2 Vlan for LS-Tractor-USA
+
+ $SSID = 'LS-Tractor-USA'
+ $Password = 'LS_Tractor_$AP'
+ $Current = netsh wlan show interfaces | Out-String
+ $Connected = $Current -match "(?m)^\s*SSID\s*:\s*$([regex]::Escape($SSID))\s*$"
+
+if (-not $Connected) {
+ $Path = Join-Path $env:TEMP "wifi-$([guid]::NewGuid().ToString('N')).xml"
+ $Key = [Security.SecurityElement]::Escape($Password)
+
+ $XML = @"
+ <?xml version="1.0"?>
+ <WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
+ <name>$SSID</name>
+ <SSIDConfig><SSID><name>$SSID</name></SSID></SSIDConfig>
+ <connectionType>ESS</connectionType>
+ <connectionMode>manual</connectionMode>
+ <MSM><security><authEncryption>
